@@ -203,10 +203,6 @@ void R_MarkVisSurfacesSIMD (byte *vis)
 		if (mask == 0)
 			continue;
 
-		mask = R_CullBoxSIMD(cl.worldmodel->soa_surfbounds[i >> 2], mask);
-		if (mask == 0)
-			continue;
-
 		mask &= R_BackFaceCullSIMD(cl.worldmodel->soa_surfplanes[i >> 2]);
 		if (mask == 0)
 			continue;
@@ -255,7 +251,7 @@ void R_MarkVisSurfaces (byte* vis)
 					if (surf->visframe != r_visframecount)
 					{
 						surf->visframe = r_visframecount;
-						if (!R_CullBox(surf->mins, surf->maxs) && !R_BackFaceCull (surf))
+						if (!R_BackFaceCull (surf))
 						{
 							rs_brushpolys++; //count wpolys here
 							R_ChainSurface(surf, chain_world);

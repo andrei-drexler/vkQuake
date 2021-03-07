@@ -140,8 +140,6 @@ typedef struct glpoly_s
 typedef struct msurface_s
 {
 	int			visframe;		// should be drawn when node is crossed
-	float		mins[3];		// johnfitz -- for frustum culling
-	float		maxs[3];		// johnfitz -- for frustum culling
 
 	mplane_t	*plane;
 	int			flags;
@@ -476,7 +474,6 @@ typedef struct qmodel_s
 
 	soa_aabb_t	*soa_leafbounds;
 	byte		*surfvis;
-	soa_aabb_t	*soa_surfbounds;
 	soa_plane_t	*soa_surfplanes;
 
 	hull_t		hulls[MAX_MAP_HULLS];
