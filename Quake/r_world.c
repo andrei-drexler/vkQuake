@@ -92,19 +92,30 @@ qboolean R_BackFaceCull (msurface_t *surf)
 ===============
 R_BackFaceCullSIMD
 
-Performs backface culling for 4 planes
+Performs backface culling for 8 planes
 ===============
 */
 int R_BackFaceCullSIMD (soa_plane_t plane)
 {
 #if USE_SIMD == SIMD_SSE2
-	__m128 pos = _mm_loadu_ps(r_refdef.vieworg), v;
+	__m128 pos = _mm_loadu_ps(r_refdef.vieworg);
 
-	v = _mm_mul_ps(_mm_loadu_ps(plane + 0), _mm_shuffle_ps(pos, pos, _MM_SHUFFLE(0, 0, 0, 0)));
-	v = _mm_add_ps(v, _mm_mul_ps(_mm_loadu_ps(plane +  4), _mm_shuffle_ps(pos, pos, _MM_SHUFFLE(1, 1, 1, 1))));
-	v = _mm_add_ps(v, _mm_mul_ps(_mm_loadu_ps(plane + 8), _mm_shuffle_ps(pos, pos, _MM_SHUFFLE(2, 2, 2, 2))));
+	__m128 px = _mm_shuffle_ps(pos, pos, _MM_SHUFFLE(0, 0, 0, 0));
+	__m128 v0 = _mm_mul_ps(_mm_loadu_ps(plane + 0), px);
+	__m128 v1 = _mm_mul_ps(_mm_loadu_ps(plane + 4), px);
 
-	return _mm_movemask_ps(_mm_cmplt_ps(_mm_loadu_ps(plane + 12), v));
+	__m128 py = _mm_shuffle_ps(pos, pos, _MM_SHUFFLE(1, 1, 1, 1));
+	v0 = _mm_add_ps(v0, _mm_mul_ps(_mm_loadu_ps(plane +  8), py));
+	v1 = _mm_add_ps(v1, _mm_mul_ps(_mm_loadu_ps(plane + 12), py));
+
+	__m128 pz = _mm_shuffle_ps(pos, pos, _MM_SHUFFLE(2, 2, 2, 2));
+	v0 = _mm_add_ps(v0, _mm_mul_ps(_mm_loadu_ps(plane + 16), pz));
+	v1 = _mm_add_ps(v1, _mm_mul_ps(_mm_loadu_ps(plane + 20), pz));
+
+	__m128 pd0 = _mm_loadu_ps(plane + 24);
+	__m128 pd1 = _mm_loadu_ps(plane + 28);
+
+	return _mm_movemask_ps(_mm_cmplt_ps(pd0, v0)) | (_mm_movemask_ps(_mm_cmplt_ps(pd1, v1)) << 4);
 #else
 #error R_BackFaceCullSIMD not implemented for this ISA
 #endif
@@ -124,6 +135,7 @@ int R_CullBoxSIMD (soa_aabb_t box, int activelanes)
 	{
 		mplane_t *p;
 		byte signbits;
+		int ofs;
 
 		if (activelanes == 0)
 			break;
@@ -132,13 +144,25 @@ int R_CullBoxSIMD (soa_aabb_t box, int activelanes)
 		p = frustum + i;
 		signbits = p->signbits;
 
-		__m128 vplane = _mm_loadu_ps(p->normal), v;
+		__m128 vplane = _mm_loadu_ps(p->normal);
 
-		v = _mm_mul_ps(_mm_loadu_ps(box + (signbits & 1 ? 0 : 4)), _mm_shuffle_ps(vplane, vplane, _MM_SHUFFLE(0, 0, 0, 0)));
-		v = _mm_add_ps(v, _mm_mul_ps(_mm_loadu_ps(box + (signbits & 2 ? 8 : 12)), _mm_shuffle_ps(vplane, vplane, _MM_SHUFFLE(1, 1, 1, 1))));
-		v = _mm_add_ps(v, _mm_mul_ps(_mm_loadu_ps(box + (signbits & 4 ? 16 : 20)), _mm_shuffle_ps(vplane, vplane, _MM_SHUFFLE(2, 2, 2, 2))));
+		ofs = signbits & 1 ? 0 : 8; // x min/max
+		__m128 px = _mm_shuffle_ps(vplane, vplane, _MM_SHUFFLE(0, 0, 0, 0));
+		__m128 v0 = _mm_mul_ps(_mm_loadu_ps(box + ofs), px);
+		__m128 v1 = _mm_mul_ps(_mm_loadu_ps(box + ofs + 4), px);
 
-		activelanes &= _mm_movemask_ps(_mm_cmplt_ps(_mm_shuffle_ps(vplane, vplane, _MM_SHUFFLE(3, 3, 3, 3)), v));
+		ofs = signbits & 2 ? 16 : 24; // y min/max
+		__m128 py = _mm_shuffle_ps(vplane, vplane, _MM_SHUFFLE(1, 1, 1, 1));
+		v0 = _mm_add_ps(v0, _mm_mul_ps(_mm_loadu_ps(box + ofs), py));
+		v1 = _mm_add_ps(v1, _mm_mul_ps(_mm_loadu_ps(box + ofs + 4), py));
+
+		ofs = signbits & 4 ? 32 : 40; // z min/max
+		__m128 pz = _mm_shuffle_ps(vplane, vplane, _MM_SHUFFLE(2, 2, 2, 2));
+		v0 = _mm_add_ps(v0, _mm_mul_ps(_mm_loadu_ps(box + ofs), pz));
+		v1 = _mm_add_ps(v1, _mm_mul_ps(_mm_loadu_ps(box + ofs + 4), pz));
+
+		__m128 pd = _mm_shuffle_ps(vplane, vplane, _MM_SHUFFLE(3, 3, 3, 3));
+		activelanes &= _mm_movemask_ps(_mm_cmplt_ps(pd, v0)) | (_mm_movemask_ps(_mm_cmplt_ps(pd, v1)) << 4);
 #else
 #error R_CullBoxSIMD not implemented for this ISA
 #endif
@@ -163,17 +187,17 @@ void R_MarkVisSurfacesSIMD (byte *vis)
 	memset(cl.worldmodel->surfvis, 0, (cl.worldmodel->numsurfaces + 7) >> 3);
 
 	// iterate through leaves, marking surfaces
-	for (i = 0; i < numleafs; i += 4)
+	for (i = 0; i < numleafs; i += 8)
 	{
-		int mask = (vis[i>>3] >> (i & 4)) & 15;
+		int mask = vis[i>>3];
 		if (mask == 0)
 			continue;
 		
-		mask = R_CullBoxSIMD(leafbounds[i>>2], mask);
+		mask = R_CullBoxSIMD(leafbounds[i>>3], mask);
 		if (mask == 0)
 			continue;
 
-		for (j = 0; j < 4; j++)
+		for (j = 0; j < 8; j++)
 		{
 			if (!(mask & (1 << j)))
 				continue;
@@ -198,17 +222,17 @@ void R_MarkVisSurfacesSIMD (byte *vis)
 	}
 
 	vis = cl.worldmodel->surfvis;
-	for (i = 0; i < numsurfaces; i += 4)
+	for (i = 0; i < numsurfaces; i += 8)
 	{
-		int mask = (vis[i >> 3] >> (i & 4)) & 15;
+		int mask = vis[i >> 3];
 		if (mask == 0)
 			continue;
 
-		mask &= R_BackFaceCullSIMD(cl.worldmodel->soa_surfplanes[i >> 2]);
+		mask &= R_BackFaceCullSIMD(cl.worldmodel->soa_surfplanes[i >> 3]);
 		if (mask == 0)
 			continue;
 
-		for (j = 0; j < 4; j++)
+		for (j = 0; j < 8; j++)
 		{
 			if (!(mask & (1 << j)))
 				continue;

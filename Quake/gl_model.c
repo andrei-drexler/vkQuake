@@ -1559,14 +1559,14 @@ SoA_FillBoxLane
 */
 void SoA_FillBoxLane(soa_aabb_t *boxes, int index, vec3_t mins, vec3_t maxs)
 {
-	float *dst = boxes[index >> 2];
-	index &= 3;
+	float *dst = boxes[index >> 3];
+	index &= 7;
 	dst[index +  0] = mins[0];
-	dst[index +  4] = maxs[0];
-	dst[index +  8] = mins[1];
-	dst[index + 12] = maxs[1];
-	dst[index + 16] = mins[2];
-	dst[index + 20] = maxs[2];
+	dst[index +  8] = maxs[0];
+	dst[index + 16] = mins[1];
+	dst[index + 24] = maxs[1];
+	dst[index + 32] = mins[2];
+	dst[index + 40] = maxs[2];
 }
 
 /*
@@ -1577,12 +1577,12 @@ SoA_FillPlaneLane
 void SoA_FillPlaneLane(soa_plane_t *planes, int index, mplane_t *src, qboolean flip)
 {
 	float side = flip ? -1.0f : 1.0f;
-	float *dst = planes[index >> 2];
-	index &= 3;
+	float *dst = planes[index >> 3];
+	index &= 7;
 	dst[index +  0] = side * src->normal[0];
-	dst[index +  4] = side * src->normal[1];
-	dst[index +  8] = side * src->normal[2];
-	dst[index + 12] = side * src->dist;
+	dst[index +  8] = side * src->normal[1];
+	dst[index + 16] = side * src->normal[2];
+	dst[index + 24] = side * src->dist;
 }
 
 /*
