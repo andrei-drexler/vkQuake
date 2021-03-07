@@ -1766,7 +1766,7 @@ Mod_LoadMarksurfaces
 void Mod_LoadMarksurfaces (lump_t *l, int bsp2)
 {
 	int		i, j, count;
-	msurface_t **out;
+	int		*out;
 	if (bsp2)
 	{
 		unsigned int *in = (unsigned int *)(mod_base + l->fileofs);
@@ -1775,7 +1775,7 @@ void Mod_LoadMarksurfaces (lump_t *l, int bsp2)
 			Host_Error ("Mod_LoadMarksurfaces: funny lump size in %s",loadmodel->name);
 
 		count = l->filelen / sizeof(*in);
-		out = (msurface_t **)Hunk_AllocName ( count*sizeof(*out), loadname);
+		out = (int*)Hunk_AllocName ( count*sizeof(*out), loadname);
 
 		loadmodel->marksurfaces = out;
 		loadmodel->nummarksurfaces = count;
@@ -1785,7 +1785,7 @@ void Mod_LoadMarksurfaces (lump_t *l, int bsp2)
 			j = LittleLong(in[i]);
 			if (j >= loadmodel->numsurfaces)
 				Host_Error ("Mod_LoadMarksurfaces: bad surface number");
-			out[i] = loadmodel->surfaces + j;
+			out[i] = j;
 		}
 	}
 	else
@@ -1811,7 +1811,7 @@ void Mod_LoadMarksurfaces (lump_t *l, int bsp2)
 			j = (unsigned short)LittleShort(in[i]); //johnfitz -- explicit cast as unsigned short
 			if (j >= loadmodel->numsurfaces)
 				Sys_Error ("Mod_LoadMarksurfaces: bad surface number");
-			out[i] = loadmodel->surfaces + j;
+			out[i] = j;
 		}
 	}
 }
