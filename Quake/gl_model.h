@@ -230,8 +230,8 @@ typedef struct
 	vec3_t		clip_maxs;
 } hull_t;
 
-typedef float soa_aabb_t[2 * 3 * 4]; // 4 AABB's in SoA form
-typedef float soa_plane_t[4 * 4]; // 4 planes in SoA form
+typedef float soa_aabb_t[2 * 3 * 8]; // 8 AABB's in SoA form
+typedef float soa_plane_t[4 * 8]; // 8 planes in SoA form
 
 /*
 ==============================================================================
