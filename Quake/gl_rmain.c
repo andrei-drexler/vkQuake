@@ -68,6 +68,7 @@ cvar_t	r_pos = {"r_pos","0",CVAR_NONE};
 cvar_t	r_wateralpha = {"r_wateralpha","1",CVAR_ARCHIVE};
 cvar_t	r_dynamic = {"r_dynamic","1",CVAR_ARCHIVE};
 cvar_t	r_novis = {"r_novis","0",CVAR_ARCHIVE};
+cvar_t	r_simd = {"r_simd","1",CVAR_ARCHIVE};
 
 cvar_t	gl_finish = {"gl_finish","0",CVAR_NONE};
 cvar_t	gl_polyblend = {"gl_polyblend","1",CVAR_NONE};
