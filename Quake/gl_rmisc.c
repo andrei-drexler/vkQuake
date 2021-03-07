@@ -44,6 +44,7 @@ extern cvar_t r_nolerp_list;
 extern cvar_t gl_zfix; // QuakeSpasm z-fighting fix
 
 extern cvar_t external_vis; // 01-24-2021 Dan Abbott
+extern cvar_t r_simd;
 
 extern gltexture_t *playertextures[MAX_SCOREBOARD]; //johnfitz
 
@@ -2192,6 +2193,7 @@ void R_Init (void)
 	Cvar_RegisterVariable (&r_dynamic);
 	Cvar_RegisterVariable (&r_novis);
 	Cvar_RegisterVariable (&external_vis); // 01-24-2021 Dan Abbott
+	Cvar_RegisterVariable (&r_simd);
 	Cvar_RegisterVariable (&r_speeds);
 	Cvar_RegisterVariable (&r_pos);
 

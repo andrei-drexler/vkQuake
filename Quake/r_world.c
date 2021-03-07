@@ -25,7 +25,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 
-extern cvar_t gl_fullbrights, r_drawflat, r_oldskyleaf, r_showtris; //johnfitz
+extern cvar_t gl_fullbrights, r_drawflat, r_oldskyleaf, r_showtris, r_simd; //johnfitz
 
 byte *SV_FatPVS (vec3_t org, qmodel_t *worldmodel);
 
@@ -86,6 +86,194 @@ qboolean R_BackFaceCull (msurface_t *surf)
 	return false;
 }
 
+#ifdef USE_SIMD
+/*
+===============
+R_BackFaceCullSIMD
+
+Performs backface culling for 4 planes
+===============
+*/
+int R_BackFaceCullSIMD (soa_plane_t plane)
+{
+#if USE_SIMD == SIMD_SSE2
+	__m128 pos = _mm_loadu_ps(r_refdef.vieworg), v;
+
+	v = _mm_mul_ps(_mm_loadu_ps(plane + 0), _mm_shuffle_ps(pos, pos, _MM_SHUFFLE(0, 0, 0, 0)));
+	v = _mm_add_ps(v, _mm_mul_ps(_mm_loadu_ps(plane +  4), _mm_shuffle_ps(pos, pos, _MM_SHUFFLE(1, 1, 1, 1))));
+	v = _mm_add_ps(v, _mm_mul_ps(_mm_loadu_ps(plane + 8), _mm_shuffle_ps(pos, pos, _MM_SHUFFLE(2, 2, 2, 2))));
+
+	return _mm_movemask_ps(_mm_cmplt_ps(_mm_loadu_ps(plane + 12), v));
+#else
+#error R_BackFaceCullSIMD not implemented for this ISA
+#endif
+}
+
+/*
+===============
+R_CullBoxSIMD
+
+Performs frustum culling for 8 bounding boxes
+===============
+*/
+int R_CullBoxSIMD (soa_aabb_t box, int activelanes)
+{
+	int i;
+	for (i = 0; i < 4; i++)
+	{
+		mplane_t *p;
+		byte signbits;
+
+		if (activelanes == 0)
+			break;
+
+#if USE_SIMD == SIMD_SSE2
+		p = frustum + i;
+		signbits = p->signbits;
+
+		__m128 vplane = _mm_loadu_ps(p->normal), v;
+
+		v = _mm_mul_ps(_mm_loadu_ps(box + (signbits & 1 ? 0 : 12)), _mm_shuffle_ps(vplane, vplane, _MM_SHUFFLE(0, 0, 0, 0)));
+		v = _mm_add_ps(v, _mm_mul_ps(_mm_loadu_ps(box + (signbits & 2 ? 4 : 16)), _mm_shuffle_ps(vplane, vplane, _MM_SHUFFLE(1, 1, 1, 1))));
+		v = _mm_add_ps(v, _mm_mul_ps(_mm_loadu_ps(box + (signbits & 4 ? 8 : 20)), _mm_shuffle_ps(vplane, vplane, _MM_SHUFFLE(2, 2, 2, 2))));
+
+		activelanes &= _mm_movemask_ps(_mm_cmplt_ps(_mm_shuffle_ps(vplane, vplane, _MM_SHUFFLE(3, 3, 3, 3)), v));
+#else
+#error R_CullBoxSIMD not implemented for this ISA
+#endif
+	}
+
+	return activelanes;
+}
+
+/*
+===============
+R_MarkVisSurfacesSIMD
+===============
+*/
+void R_MarkVisSurfacesSIMD (byte *vis)
+{
+	msurface_t	*surf;
+	int			i, j, k;
+	int			numleafs = cl.worldmodel->numleafs;
+	int			numsurfaces = cl.worldmodel->numsurfaces;
+	soa_aabb_t	*leafbounds = cl.worldmodel->soa_leafbounds;
+
+	memset(cl.worldmodel->surfvis, 0, (cl.worldmodel->numsurfaces + 7) >> 3);
+
+	// iterate through leaves, marking surfaces
+	for (i = 0; i < numleafs; i += 4)
+	{
+		int mask = (vis[i>>3] >> (i & 4)) & 15;
+		if (mask == 0)
+			continue;
+		
+		mask = R_CullBoxSIMD(leafbounds[i>>2], mask);
+		if (mask == 0)
+			continue;
+
+		for (j = 0; j < 4; j++)
+		{
+			if (!(mask & (1 << j)))
+				continue;
+
+			mleaf_t *leaf = &cl.worldmodel->leafs[1 + i + j];
+			if (leaf->contents != CONTENTS_SKY || r_oldskyleaf.value)
+			{
+				byte *surfmask = cl.worldmodel->surfvis;
+				int nummarksurfaces = leaf->nummarksurfaces;
+				msurface_t **marksurfaces = leaf->firstmarksurface;
+				for (k = 0; k < nummarksurfaces; k++)
+				{
+					int index = marksurfaces[k] - cl.worldmodel->surfaces;
+					surfmask[index >> 3] |= 1 << (index & 7);
+				}
+			}
+
+			// add static models
+			if (leaf->efrags)
+				R_StoreEfrags (&leaf->efrags);
+		}
+	}
+
+	vis = cl.worldmodel->surfvis;
+	for (i = 0; i < numsurfaces; i += 4)
+	{
+		int mask = (vis[i >> 3] >> (i & 4)) & 15;
+		if (mask == 0)
+			continue;
+
+		mask = R_CullBoxSIMD(cl.worldmodel->soa_surfbounds[i >> 2], mask);
+		if (mask == 0)
+			continue;
+
+		mask &= R_BackFaceCullSIMD(cl.worldmodel->soa_surfplanes[i >> 2]);
+		if (mask == 0)
+			continue;
+
+		for (j = 0; j < 4; j++)
+		{
+			if (!(mask & (1 << j)))
+				continue;
+
+			surf = &cl.worldmodel->surfaces[i + j];
+			rs_brushpolys++; //count wpolys here
+			surf->visframe = r_visframecount;
+			R_ChainSurface(surf, chain_world);
+			R_RenderDynamicLightmaps(surf);
+			if (surf->texinfo->texture->warpimage)
+				surf->texinfo->texture->update_warp = true;
+		}
+	}
+}
+#endif // defined(USE_SIMD)
+
+/*
+===============
+R_MarkVisSurfaces
+===============
+*/
+void R_MarkVisSurfaces (byte* vis)
+{
+	int			i, j;
+	msurface_t	*surf, **mark;
+	mleaf_t		*leaf;
+
+	leaf = &cl.worldmodel->leafs[1];
+	for (i=0 ; i<cl.worldmodel->numleafs ; i++, leaf++)
+	{
+		if (vis[i>>3] & (1<<(i&7)))
+		{
+			if (R_CullBox(leaf->minmaxs, leaf->minmaxs + 3))
+				continue;
+
+			if (r_oldskyleaf.value || leaf->contents != CONTENTS_SKY)
+			{
+				for (j=0, mark = leaf->firstmarksurface; j<leaf->nummarksurfaces; j++, mark++)
+				{
+					surf = *mark;
+					if (surf->visframe != r_visframecount)
+					{
+						surf->visframe = r_visframecount;
+						if (!R_CullBox(surf->mins, surf->maxs) && !R_BackFaceCull (surf))
+						{
+							rs_brushpolys++; //count wpolys here
+							R_ChainSurface(surf, chain_world);
+							R_RenderDynamicLightmaps(surf);
+							if (surf->texinfo->texture->warpimage)
+								surf->texinfo->texture->update_warp = true;
+						}
+					}
+				}
+			}
+
+			// add static models
+			if (leaf->efrags)
+				R_StoreEfrags (&leaf->efrags);
+		}
+	}
+}
+
 /*
 ===============
 R_MarkSurfaces -- johnfitz -- mark surfaces based on PVS and rebuild texture chains
@@ -94,9 +282,8 @@ R_MarkSurfaces -- johnfitz -- mark surfaces based on PVS and rebuild texture cha
 void R_MarkSurfaces (void)
 {
 	byte		*vis;
-	mleaf_t		*leaf;
-	msurface_t	*surf, **mark;
-	int			i, j;
+	msurface_t	**mark;
+	int			i;
 	qboolean	nearwaterportal;
 
 	// check this leaf for water portals
@@ -122,36 +309,15 @@ void R_MarkSurfaces (void)
 			cl.worldmodel->textures[i]->texturechains[chain_world] = NULL;
 
 	// iterate through leaves, marking surfaces
-	leaf = &cl.worldmodel->leafs[1];
-	for (i=0 ; i<cl.worldmodel->numleafs ; i++, leaf++)
+#if defined(USE_SIMD)
+	if (r_simd.value)
 	{
-		if (vis[i>>3] & (1<<(i&7)))
-		{
-			if (R_CullBox(leaf->minmaxs, leaf->minmaxs + 3))
-				continue;
-
-			if (r_oldskyleaf.value || leaf->contents != CONTENTS_SKY)
-				for (j=0, mark = leaf->firstmarksurface; j<leaf->nummarksurfaces; j++, mark++)
-				{
-					surf = *mark;
-					if (surf->visframe != r_visframecount)
-					{
-						(*mark)->visframe = r_visframecount;
-						if (!R_CullBox(surf->mins, surf->maxs) && !R_BackFaceCull (surf))
-						{
-							rs_brushpolys++; //count wpolys here
-							R_ChainSurface(surf, chain_world);
-							R_RenderDynamicLightmaps(surf);
-							if (surf->texinfo->texture->warpimage)
-								surf->texinfo->texture->update_warp = true;
-						}
-					}
-				}
-
-			// add static models
-			if (leaf->efrags)
-				R_StoreEfrags (&leaf->efrags);
-		}
+		R_MarkVisSurfacesSIMD(vis);
+	}
+	else
+#endif
+	{
+		R_MarkVisSurfaces(vis);
 	}
 }
 
