@@ -1562,10 +1562,10 @@ void SoA_FillBoxLane(soa_aabb_t *boxes, int index, vec3_t mins, vec3_t maxs)
 	float *dst = boxes[index >> 2];
 	index &= 3;
 	dst[index +  0] = mins[0];
-	dst[index +  4] = mins[1];
-	dst[index +  8] = mins[2];
-	dst[index + 12] = maxs[0];
-	dst[index + 16] = maxs[1];
+	dst[index +  4] = maxs[0];
+	dst[index +  8] = mins[1];
+	dst[index + 12] = maxs[1];
+	dst[index + 16] = mins[2];
 	dst[index + 20] = maxs[2];
 }
 
