@@ -134,9 +134,9 @@ int R_CullBoxSIMD (soa_aabb_t box, int activelanes)
 
 		__m128 vplane = _mm_loadu_ps(p->normal), v;
 
-		v = _mm_mul_ps(_mm_loadu_ps(box + (signbits & 1 ? 0 : 12)), _mm_shuffle_ps(vplane, vplane, _MM_SHUFFLE(0, 0, 0, 0)));
-		v = _mm_add_ps(v, _mm_mul_ps(_mm_loadu_ps(box + (signbits & 2 ? 4 : 16)), _mm_shuffle_ps(vplane, vplane, _MM_SHUFFLE(1, 1, 1, 1))));
-		v = _mm_add_ps(v, _mm_mul_ps(_mm_loadu_ps(box + (signbits & 4 ? 8 : 20)), _mm_shuffle_ps(vplane, vplane, _MM_SHUFFLE(2, 2, 2, 2))));
+		v = _mm_mul_ps(_mm_loadu_ps(box + (signbits & 1 ? 0 : 4)), _mm_shuffle_ps(vplane, vplane, _MM_SHUFFLE(0, 0, 0, 0)));
+		v = _mm_add_ps(v, _mm_mul_ps(_mm_loadu_ps(box + (signbits & 2 ? 8 : 12)), _mm_shuffle_ps(vplane, vplane, _MM_SHUFFLE(1, 1, 1, 1))));
+		v = _mm_add_ps(v, _mm_mul_ps(_mm_loadu_ps(box + (signbits & 4 ? 16 : 20)), _mm_shuffle_ps(vplane, vplane, _MM_SHUFFLE(2, 2, 2, 2))));
 
 		activelanes &= _mm_movemask_ps(_mm_cmplt_ps(_mm_shuffle_ps(vplane, vplane, _MM_SHUFFLE(3, 3, 3, 3)), v));
 #else
