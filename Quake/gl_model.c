@@ -1088,43 +1088,6 @@ void Mod_PolyForUnlitSurface (msurface_t *fa)
 
 /*
 =================
-Mod_CalcSurfaceBounds -- johnfitz -- calculate bounding box for per-surface frustum culling
-=================
-*/
-void Mod_CalcSurfaceBounds (msurface_t *s)
-{
-	int			i, e;
-	mvertex_t	*v;
-
-	s->mins[0] = s->mins[1] = s->mins[2] = FLT_MAX;
-	s->maxs[0] = s->maxs[1] = s->maxs[2] = -FLT_MAX;
-
-	for (i=0 ; i<s->numedges ; i++)
-	{
-		e = loadmodel->surfedges[s->firstedge+i];
-		if (e >= 0)
-			v = &loadmodel->vertexes[loadmodel->edges[e].v[0]];
-		else
-			v = &loadmodel->vertexes[loadmodel->edges[-e].v[1]];
-
-		if (s->mins[0] > v->position[0])
-			s->mins[0] = v->position[0];
-		if (s->mins[1] > v->position[1])
-			s->mins[1] = v->position[1];
-		if (s->mins[2] > v->position[2])
-			s->mins[2] = v->position[2];
-
-		if (s->maxs[0] < v->position[0])
-			s->maxs[0] = v->position[0];
-		if (s->maxs[1] < v->position[1])
-			s->maxs[1] = v->position[1];
-		if (s->maxs[2] < v->position[2])
-			s->maxs[2] = v->position[2];
-	}
-}
-
-/*
-=================
 Mod_LoadFaces
 =================
 */
@@ -1199,8 +1162,6 @@ void Mod_LoadFaces (lump_t *l, qboolean bsp2)
 		out->texinfo = loadmodel->texinfo + texinfon;
 
 		CalcSurfaceExtents (out);
-
-		Mod_CalcSurfaceBounds (out); //johnfitz -- for per-surface frustum culling
 
 	// lighting info
 		if (lofs == -1)
@@ -1636,7 +1597,6 @@ void Mod_PrepareSIMDData (void)
 
 	loadmodel->soa_leafbounds = Hunk_Alloc(6 * sizeof(float) * ((loadmodel->numleafs + 7) & ~7));
 	loadmodel->surfvis        = Hunk_Alloc((loadmodel->numsurfaces + 7) & ~7);
-	loadmodel->soa_surfbounds = Hunk_Alloc(6 * sizeof(float) * ((loadmodel->numsurfaces + 7) & ~7));
 	loadmodel->soa_surfplanes = Hunk_Alloc(4 * sizeof(float) * ((loadmodel->numsurfaces + 7) & ~7));
 
 	for (i = 0; i < loadmodel->numleafs; ++i)
@@ -1648,7 +1608,6 @@ void Mod_PrepareSIMDData (void)
 	for (i = 0; i < loadmodel->numsurfaces; ++i)
 	{
 		msurface_t *surf = &loadmodel->surfaces[i];
-		SoA_FillBoxLane(loadmodel->soa_surfbounds, i, surf->mins, surf->maxs);
 		SoA_FillPlaneLane(loadmodel->soa_surfplanes, i, surf->plane, surf->flags & SURF_PLANEBACK);
 	}
 #endif // def USE_SIMD
