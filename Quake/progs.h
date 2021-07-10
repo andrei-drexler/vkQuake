@@ -291,6 +291,17 @@ typedef struct areanode_s
 #define	AREA_DEPTH	4
 #define	AREA_NODES	32
 
+typedef struct prhashtableslot_s {
+	const char*	string;
+	int			index;
+} prhashtableslot_t;
+
+typedef struct prhashtable_s {
+	int			capacity;
+	const char	**strings;
+	int			*indices;
+} prhashtable_t;
+
 struct qcvm_s
 {
 	dprograms_t	*progs;
@@ -317,6 +328,10 @@ struct qcvm_s
 	struct pr_extglobals_s extglobals;
 	struct pr_extfuncs_s extfuncs;
 	struct pr_extfields_s extfields;
+
+	prhashtable_t ht_fields;
+	prhashtable_t ht_functions;
+	prhashtable_t ht_globals;
 
 	//was static inside pr_edict
 	char		*strings;

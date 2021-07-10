@@ -51,6 +51,113 @@ cvar_t	saved4 = {"saved4", "0", CVAR_ARCHIVE};
 
 /*
 =================
+PR_HashValue
+
+Computes the FNV-1a hash of string s
+=================
+*/
+static unsigned PR_HashValue(const char* s)
+{
+	unsigned hash = 0x811c9dc5u;
+	while (*s)
+	{
+		hash ^= *s++;
+		hash *= 0x01000193u;
+	}
+	return hash;
+}
+
+/*
+=================
+PR_HashInit
+=================
+*/
+static void PR_HashInit(prhashtable_t *table, int capacity)
+{
+	capacity *= 2; // 50% load factor
+	table->capacity = capacity;
+	table->strings = (const char**) Hunk_Alloc(capacity * sizeof(*table->strings));
+	table->indices = (int*        ) Hunk_Alloc(capacity * sizeof(*table->indices));
+}
+
+/*
+=================
+PR_HashGet
+=================
+*/
+static int PR_HashGet(prhashtable_t *table, const char* key)
+{
+	unsigned pos = PR_HashValue(key) % table->capacity, end = pos;
+
+	do
+	{
+		const char* s = table->strings[pos];
+		if (!s)
+			return -1;
+		if (0 == strcmp(s, key))
+			return table->indices[pos];
+
+		++pos;
+		if (pos == table->capacity)
+			pos = 0;
+	}
+	while (pos != end);
+
+	return -1;
+}
+
+/*
+=================
+PR_HashAdd
+=================
+*/
+static void PR_HashAdd(prhashtable_t *table, int skey, int value)
+{
+	const char* name = PR_GetString(skey);
+	unsigned pos = PR_HashValue(name) % table->capacity, end = pos;
+
+	do
+	{
+		if (!table->strings[pos])
+		{
+			table->strings[pos] = name;
+			table->indices[pos] = value;
+			return;
+		}
+
+		++pos;
+		if (pos == table->capacity)
+			pos = 0;
+	}
+	while (pos != end);
+
+	Sys_Error("PR_HashAdd failed");
+}
+
+/*
+===============
+PR_InitHashTables
+===============
+*/
+static void PR_InitHashTables(void)
+{
+	int i;
+
+	PR_HashInit(&qcvm->ht_fields, qcvm->progs->numfielddefs);
+	for (i = 0; i < qcvm->progs->numfielddefs; i++)
+		PR_HashAdd(&qcvm->ht_fields, qcvm->fielddefs[i].s_name, i);
+
+	PR_HashInit(&qcvm->ht_functions, qcvm->progs->numfunctions);
+	for (i = 0; i < qcvm->progs->numfunctions; i++)
+		PR_HashAdd(&qcvm->ht_functions, qcvm->functions[i].s_name, i);
+
+	PR_HashInit(&qcvm->ht_globals, qcvm->progs->numglobaldefs);
+	for (i = 0; i < qcvm->progs->numglobaldefs; i++)
+		PR_HashAdd(&qcvm->ht_globals, qcvm->globaldefs[i].s_name, i);
+}
+
+/*
+=================
 ED_ClearEdict
 
 Sets everything to NULL
@@ -178,6 +285,14 @@ ddef_t *ED_FindField (const char *name)
 	ddef_t		*def;
 	int			i;
 
+	if (qcvm->ht_fields.capacity > 0)
+	{
+		int index = PR_HashGet(&qcvm->ht_fields, name);
+		if (index < 0)
+			return NULL;
+		return qcvm->fielddefs + index;
+	}
+
 	for (i = 0; i < qcvm->progs->numfielddefs; i++)
 	{
 		def = &qcvm->fielddefs[i];
@@ -207,6 +322,14 @@ ddef_t *ED_FindGlobal (const char *name)
 	ddef_t		*def;
 	int			i;
 
+	if (qcvm->ht_globals.capacity > 0)
+	{
+		int index = PR_HashGet(&qcvm->ht_globals, name);
+		if (index < 0)
+			return NULL;
+		return qcvm->globaldefs + index;
+	}
+
 	for (i = 0; i < qcvm->progs->numglobaldefs; i++)
 	{
 		def = &qcvm->globaldefs[i];
@@ -226,6 +349,14 @@ dfunction_t *ED_FindFunction (const char *fn_name)
 {
 	dfunction_t		*func;
 	int				i;
+
+	if (qcvm->ht_functions.capacity > 0)
+	{
+		int index = PR_HashGet(&qcvm->ht_functions, fn_name);
+		if (index < 0)
+			return NULL;
+		return qcvm->functions + index;
+	}
 
 	for (i = 0; i < qcvm->progs->numfunctions; i++)
 	{
@@ -1315,6 +1446,8 @@ qboolean PR_LoadProgs (const char *filename, qboolean fatal, unsigned int needcr
 
 	//spike: detect extended fields from progs
 	PR_MergeEngineFieldDefs();
+	PR_InitHashTables();
+
 #define QCEXTFIELD(n,t) qcvm->extfields.n = ED_FindFieldOffset(#n);
 	QCEXTFIELDS_ALL
 	QCEXTFIELDS_GAME
