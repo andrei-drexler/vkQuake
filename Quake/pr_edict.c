@@ -1520,11 +1520,39 @@ int NUM_FOR_EDICT(edict_t *e)
 
 #define	PR_STRING_ALLOCSLOTS	256
 
-static void PR_AllocStringSlots (void)
+static int PR_AllocStringSlot(void)
 {
-	qcvm->maxknownstrings += PR_STRING_ALLOCSLOTS;
-	Con_DPrintf2("PR_AllocStringSlots: realloc'ing for %d slots\n", qcvm->maxknownstrings);
-	qcvm->knownstrings = (const char **) Z_Realloc ((void *)qcvm->knownstrings, qcvm->maxknownstrings * sizeof(char *));
+	ptrdiff_t i;
+
+	if (qcvm->firstfreeknownstring)
+	{
+		i = qcvm->firstfreeknownstring - qcvm->knownstrings;
+		if (i < 0 || i >= qcvm->maxknownstrings)
+			Sys_Error("PR_AllocStringSlot failed: invalid free list index %ti/%i\n", i, qcvm->maxknownstrings);
+		qcvm->firstfreeknownstring = (const char**)(*qcvm->firstfreeknownstring);
+	}
+	else
+	{
+		i = qcvm->numknownstrings++;
+		if (i >= qcvm->maxknownstrings)
+		{
+			qcvm->maxknownstrings += PR_STRING_ALLOCSLOTS;
+			Con_DPrintf2("PR_AllocStringSlot: realloc'ing for %d slots\n", qcvm->maxknownstrings);
+			qcvm->knownstrings = (const char **) Z_Realloc ((void *)qcvm->knownstrings, qcvm->maxknownstrings * sizeof(char *));
+		}
+	}
+
+	return (int)i;
+}
+
+static qboolean PR_IsValidString(const char* p)
+{
+	if (!p)
+		return false;
+	// pointers inside the knownstrings array make up the free list and shouldn't be treated as actual strings
+	if (p >= (const char*)qcvm->knownstrings && p < (const char*)(qcvm->knownstrings + qcvm->maxknownstrings))
+		return false;
+	return true;
 }
 
 const char *PR_GetString (int num)
@@ -1533,7 +1561,7 @@ const char *PR_GetString (int num)
 		return qcvm->strings + num;
 	else if (num < 0 && num >= -qcvm->numknownstrings)
 	{
-		if (!qcvm->knownstrings[-1 - num])
+		if (!PR_IsValidString(qcvm->knownstrings[-1 - num]))
 		{
 			Host_Error ("PR_GetString: attempt to get a non-existant string %d\n", num);
 			return "";
@@ -1553,9 +1581,8 @@ void PR_ClearEngineString(int num)
 	if (num < 0 && num >= -qcvm->numknownstrings)
 	{
 		num = -1 - num;
-		qcvm->knownstrings[num] = NULL;
-		if (qcvm->freeknownstrings > num)
-			qcvm->freeknownstrings = num;
+		qcvm->knownstrings[num] = (const char*)qcvm->firstfreeknownstring;
+		qcvm->firstfreeknownstring = qcvm->knownstrings + num;
 	}
 }
 
@@ -1579,22 +1606,7 @@ int PR_SetEngineString (const char *s)
 	}
 	// new unknown engine string
 	//Con_DPrintf ("PR_SetEngineString: new engine string %p\n", s);
-	for (i = qcvm->freeknownstrings; ; i++)
-	{
-		if (i < qcvm->numknownstrings)
-		{
-			if (qcvm->knownstrings[i])
-				continue;
-		}
-		else
-		{
-			if (i >= qcvm->maxknownstrings)
-				PR_AllocStringSlots();
-			qcvm->numknownstrings++;
-		}
-		break;
-	}
-	qcvm->freeknownstrings = i+1;
+	i = PR_AllocStringSlot();
 	qcvm->knownstrings[i] = s;
 	return -1 - i;
 }
@@ -1605,17 +1617,7 @@ int PR_AllocString (int size, char **ptr)
 
 	if (!size)
 		return 0;
-	for (i = 0; i < qcvm->numknownstrings; i++)
-	{
-		if (!qcvm->knownstrings[i])
-			break;
-	}
-//	if (i >= pr_numknownstrings)
-//	{
-		if (i >= qcvm->maxknownstrings)
-			PR_AllocStringSlots();
-		qcvm->numknownstrings++;
-//	}
+	i = PR_AllocStringSlot();
 	qcvm->knownstrings[i] = (char *)Hunk_AllocName(size, "string");
 	if (ptr)
 		*ptr = (char *) qcvm->knownstrings[i];

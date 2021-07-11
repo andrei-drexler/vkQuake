@@ -339,7 +339,7 @@ struct qcvm_s
 	const char	**knownstrings;
 	int			maxknownstrings;
 	int			numknownstrings;
-	int			freeknownstrings;
+	const char	**firstfreeknownstring; // free list (singly linked)
 	ddef_t		*globaldefs;
 
 	unsigned char *knownzone;
